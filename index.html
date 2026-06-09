@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>flowlog — journal & reports</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+  <script src="https://unpkg.com/dexie@3.2.4/dist/dexie.js"></script>
+  <style>
+    * { font-family: 'Inter', sans-serif; }
+    body { background: #f6f7fb; color: #1e293b; }
+    #app { max-width: 1280px; margin: 0 auto; }
+    .entries-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
+    .log-card { background: #ffffff; border: 2px solid #eef2f6; border-radius: 24px; padding: 20px; transition: all 0.2s ease; box-shadow: 0 2px 8px rgba(0,0,0,0.02); break-inside: avoid; }
+    .log-card:hover { transform: translateY(-2px); box-shadow: 0 12px 24px -12px rgba(0, 0, 0, 0.08); border-color: #e0e7ef; }
+    .create-entry-area { background: linear-gradient(135deg, #ffffff 0%, #fffaf0 100%); border: 1px solid #ffecce; border-radius: 24px; padding: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.03); margin-bottom: 24px; }
+    .create-entry-area:focus-within { border-color: #f5b042; box-shadow: 0 4px 16px rgba(245, 176, 66, 0.1); }
+    .filter-bar { display: flex; gap: 12px; background: white; border: 1px solid #e9edf2; border-radius: 48px; padding: 4px; margin-bottom: 24px; }
+    .filter-bar .search-wrapper { flex: 1; position: relative; }
+    .filter-bar .search-wrapper i { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); font-size: 14px; color: #94a3b8; }
+    #search-global { width: 100%; padding: 10px 16px 10px 42px; border-radius: 40px; border: none; background: transparent; font-size: 0.9rem; }
+    #search-global:focus { outline: none; }
+    #tag-filter { border-radius: 40px; border: none; background: #f8fafc; padding: 0 16px; font-size: 0.85rem; color: #1e293b; cursor: pointer; }
+    .tag-pill { border-radius: 40px; font-size: 12px; font-weight: 500; padding: 4px 12px; background: #f1f4f9; color: #334155; transition: 0.1s; }
+    .tag-pill-sm { font-size: 11px; padding: 3px 10px; }
+    .date-nav { background: white; border: 1px solid #eef2f6; width: 40px; height: 40px; border-radius: 30px; transition: 0.15s; }
+    .date-nav:hover { background: #f8fafc; }
+    .tab-btn { font-weight: 500; padding: 8px 18px; border-radius: 40px; transition: 0.2s; cursor: pointer; }
+    .tab-btn.active { background: white; color: #2f80ed; box-shadow: 0 1px 4px rgba(0,0,0,0.04); }
+    .stat-card { background: white; border: 1px solid #edf2f7; border-radius: 24px; padding: 14px 16px; transition: 0.2s; }
+    .stat-title { color: #6c7a91; font-size: 12px; margin-bottom: 4px; }
+    .stat-value { font-size: 28px; font-weight: 700; color: #0f172a; line-height: 1.2; }
+    .heatmap-tiles { display: flex; justify-content: space-between; gap: 6px; margin-top: 6px; }
+    .heatmap-tile { flex: 1; aspect-ratio: 1 / 1; border-radius: 10px; }
+    .tile-level-0 { background: #eef2f6; }
+    .tile-level-1 { background: #d9e8fc; }
+    .tile-level-2 { background: #b2d4ff; }
+    .tile-level-3 { background: #7cb8ff; }
+    .tile-level-4 { background: #3f8eff; }
+    .tile-level-5 { background: #1a6eff; }
+    .heatmap-legend { display: flex; justify-content: space-between; margin-top: 6px; font-size: 7px; color: #94a3b8; }
+    .gradient-headline { background: linear-gradient(135deg, #1e293b 0%, #2d3a5e 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    .actions-dropdown { position: relative; display: inline-block; }
+    .dropdown-btn { background: none; border: none; cursor: pointer; padding: 4px 6px; border-radius: 8px; color: #94a3b8; transition: 0.1s; }
+    .dropdown-btn:hover { background: #f1f5f9; color: #475569; }
+    .dropdown-content { position: absolute; right: 0; top: 100%; background: white; border-radius: 16px; box-shadow: 0 12px 28px rgba(0,0,0,0.1); border: 1px solid #eef2f6; min-width: 150px; z-index: 50; display: none; overflow: hidden; }
+    .dropdown-content.show { display: block; }
+    .dropdown-item { padding: 8px 14px; font-size: 13px; display: flex; align-items: center; gap: 10px; cursor: pointer; transition: 0.1s; }
+    .dropdown-item:hover { background: #f8fafc; }
+    .tag-picker-modal { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: white; border-radius: 28px; box-shadow: 0 20px 35px -12px rgba(0,0,0,0.2); padding: 16px 20px; display: flex; flex-wrap: wrap; gap: 8px; max-width: 320px; z-index: 100; border: 1px solid #eef2f6; }
+    .report-stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 32px; }
+    .report-chart-card { background: #f8fafc; border-radius: 20px; padding: 18px; border: 1px solid #e2e8f0; margin-bottom: 20px; }
+    .weekday-chart { display: flex; justify-content: space-between; align-items: flex-end; height: 120px; gap: 8px; margin-top: 12px; }
+    .chart-bar { flex: 1; background: #3f8eff; border-radius: 8px 8px 4px 4px; }
+    .tag-cloud { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .order-badge { display: inline-flex; align-items: center; justify-content: center; background: #f1f5f9; border-radius: 40px; padding: 2px 10px; font-size: 11px; font-weight: 600; color: #475569; margin-right: 8px; }
+    @media (max-width: 900px) { .entries-grid { grid-template-columns: 1fr; } .report-stats-grid { grid-template-columns: repeat(2, 1fr); } .filter-bar { flex-direction: column; border-radius: 24px; padding: 8px; } #tag-filter { padding: 8px 12px; width: 100%; } }
+    @media print { body { background: white; padding: 0; margin: 0; } .no-print, .dashboard-grid, .tab-btn, .filter-bar, .date-nav, #date-picker, #export-pdf-btn, .create-entry-area, .stat-card, .actions-dropdown, .tab-btn, .filter-bar, .dashboard-grid, .date-nav, .create-entry-area, #toggle-tags-btn, .quick-tag-btn, #more-tags-btn, .actions-dropdown, .dropdown-btn, .dropdown-content { display: none !important; } .log-card { break-inside: avoid; border: 1px solid #e5e7eb; margin-bottom: 16px; box-shadow: none; } .report-stats-grid, .report-chart-card, .stat-card { break-inside: avoid; } }
+  </style>
+</head>
+<body>
+<div id="app" class="mx-auto px-4 sm:px-6 py-5 md:py-8"></div>
+
+<script>
+  // ---------- CONSTANTS & HELPERS ----------
+  const ALL_TAGS = ["work","idea","meeting","learning","writing","coding","design","research","reading","planning","reflection","social","health","creative","milestone"];
+  const QUICK_TAGS = ["work", "meeting", "idea"];
+  function getTagColor(tag) {
+    const colors = [
+      { bg: "#eaf3ff", text: "#2f80ed" }, { bg: "#f3ebff", text: "#8b5cf6" }, { bg: "#fff4e5", text: "#f59e0b" },
+      { bg: "#ebfff2", text: "#22c55e" }, { bg: "#ffe5e5", text: "#ef4444" }, { bg: "#e5f0ff", text: "#3b82f6" },
+      { bg: "#fae8ff", text: "#d946ef" }, { bg: "#e5f5e5", text: "#10b981" }, { bg: "#fff0e5", text: "#f97316" },
+      { bg: "#e5e5ff", text: "#6366f1" }
+    ];
+    let hash = 0;
+    for (let i = 0; i < tag.length; i++) hash = ((hash << 5) - hash) + tag.charCodeAt(i);
+    return colors[Math.abs(hash) % colors.length];
+  }
+  function getTodayISO() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+  function formatDateHeader(d) { return new Date(d).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }); }
+  function formatTime(date) { let h = date.getHours(), m = date.getMinutes().toString().padStart(2,'0'), ap = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12; return `${h}:${m} ${ap}`; }
+  function getEntryMetadata(dateObj) { const d = new Date(dateObj); return { currentDate: `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`, currentTime: formatTime(d), dayName: d.toLocaleDateString('en-US', { weekday: 'long' }) }; }
+
+  // ---------- DATABASE ----------
+  const db = new Dexie("FlowlogVibrantDB");
+  db.version(1).stores({ entries: "++id, dayId, createdTimestamp, pinned, order, tags, content, links, files" });
+  async function getNextOrder(dayId) { const arr = await db.entries.where({ dayId }).toArray(); return arr.reduce((m, e) => Math.max(m, e.order || 0), -1) + 1; }
+  async function reorderDayEntries(dayId) { const all = await db.entries.where({ dayId }).toArray(); const sorted = all.sort((a, b) => a.pinned !== b.pinned ? (a.pinned ? -1 : 1) : (a.order || 0) - (b.order || 0)); for (let i = 0; i < sorted.length; i++) await db.entries.update(sorted[i].id, { order: i }); }
+  async function createEntryObject(dayId, content = "") { const now = new Date(); return { dayId, content: content.trim() || "✍️ ", tags: [], links: [], files: [], createdTimestamp: now.toISOString(), lastEditedTimestamp: now.toISOString(), pinned: false, order: await getNextOrder(dayId) }; }
+
+  // ---------- STATE ----------
+  let currentDay = getTodayISO();
+  let entries = [];
+  let globalSearch = "";
+  let tagFilter = "";
+  let viewMode = "journal";
+  let editingEntry = null, isModalOpen = false;
+  let searchDebounce = null;
+  let showTags = localStorage.getItem("flowlog_showTags") !== "false";
+  const app = document.getElementById("app");
+
+  // ---------- CRUD ----------
+  async function loadEntries() { let day = await db.entries.where({ dayId: currentDay }).toArray(); entries = day.sort((a, b) => a.pinned !== b.pinned ? (a.pinned ? -1 : 1) : (a.order || 0) - (b.order || 0)); render(); }
+  async function addEntry(content, tags = []) { if (!content.trim()) return; const e = await createEntryObject(currentDay, content); e.tags = tags; await db.entries.add(e); await reorderDayEntries(currentDay); await loadEntries(); const ta = document.getElementById("new-entry-field"); if (ta) { ta.value = ""; ta.focus(); } }
+  async function deleteEntry(id) { if (!confirm("Delete forever?")) return; await db.entries.delete(id); await reorderDayEntries(currentDay); await loadEntries(); }
+  async function togglePin(id, pin) { await db.entries.update(id, { pinned: !pin }); await reorderDayEntries(currentDay); await loadEntries(); }
+  async function moveEntry(id, dir) { const idx = entries.findIndex(e => e.id === id); if ((dir === 'up' && idx === 0) || (dir === 'down' && idx === entries.length - 1)) return; const newIdx = dir === 'up' ? idx - 1 : idx + 1; const tOrd = entries[newIdx].order, cOrd = entries[idx].order; await db.entries.update(id, { order: tOrd }); await db.entries.update(entries[newIdx].id, { order: cOrd }); await reorderDayEntries(currentDay); await loadEntries(); }
+  async function duplicateEntry(e) { const now = new Date(); const newOrder = await getNextOrder(e.dayId); const files = e.files?.map(f => ({ ...f, id: crypto.randomUUID?.() || Date.now() + Math.random() })) || []; const copy = { ...e, id: undefined, content: e.content + " (copy)", tags: [...e.tags], links: [...e.links], files, createdTimestamp: now.toISOString(), lastEditedTimestamp: now.toISOString(), pinned: false, order: newOrder }; await db.entries.add(copy); await reorderDayEntries(e.dayId); await loadEntries(); }
+  async function updateEntry(upd) { const now = new Date().toISOString(); await db.entries.update(upd.id, { content: upd.content, tags: upd.tags, links: upd.links, files: upd.files, lastEditedTimestamp: now }); closeModal(); await loadEntries(); }
+
+  // ---------- MODAL ----------
+  function openEditModal(entry) { editingEntry = JSON.parse(JSON.stringify(entry)); isModalOpen = true; renderModal(); }
+  function closeModal() { isModalOpen = false; editingEntry = null; document.getElementById("modal-global")?.remove(); }
+  function renderModal() {
+    const existing = document.getElementById("modal-global"); if (existing) existing.remove(); if (!isModalOpen || !editingEntry) return;
+    let local = { ...editingEntry, tags: [...editingEntry.tags], links: [...editingEntry.links], files: [...editingEntry.files] };
+    const update = () => { const c = document.getElementById("modal-inner"); if (!c) return; c.innerHTML = `<div class="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[85vh] overflow-y-auto"><div class="sticky top-0 bg-white/95 px-6 py-4 border-b flex justify-between"><h3 class="font-semibold text-xl"><i class="fas fa-pen-fancy text-indigo-500 mr-2"></i>edit entry</h3><button id="modal-close-x" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button></div><div class="p-6 space-y-5"><div><textarea id="edit-content" rows="4" class="w-full border rounded-xl p-3">${escapeHtml(local.content)}</textarea></div><div><label class="block text-sm font-medium mb-1">Tags</label><div class="flex flex-wrap gap-2 mb-3" id="modal-tags-list">${ALL_TAGS.map(t => { const active = local.tags.includes(t); const col = getTagColor(t); return `<button data-tag="${escapeHtml(t)}" class="tag-pill text-xs px-2.5 py-1 rounded-full" style="background:${col.bg}; color:${col.text}; ${active ? 'ring-1 ring-current' : ''}">#${escapeHtml(t)}</button>`; }).join('')}</div></div><div><label>Links</label><div id="modal-links-list">${local.links.map((l, i) => `<div class="flex gap-2 mb-1"><span class="text-xs truncate">${escapeHtml(l)}</span><button data-rm-link="${i}" class="text-red-400 text-sm">remove</button></div>`).join('')}</div><div class="flex gap-2 mt-1"><input id="modal-new-link" class="border rounded-xl px-3 py-1 flex-1" placeholder="https://"/><button id="modal-add-link" class="bg-gray-100 px-4 rounded-xl">➕ Link</button></div></div><div><label>Files</label><div class="flex flex-wrap gap-2 mb-2" id="modal-files-list">${local.files.map(f => `<div class="bg-gray-100 rounded-full px-3 py-1 text-xs flex gap-1"><i class="fas fa-paperclip"></i> ${escapeHtml(f.name)}<button data-rm-file="${f.id}" class="text-red-400 ml-1">&times;</button></div>`).join('')}</div><input type="file" multiple id="modal-file-input" class="text-sm"/></div></div><div class="px-6 py-4 bg-gray-50 flex justify-end gap-3"><button id="modal-cancel" class="px-4 py-2 border rounded-xl">Cancel</button><button id="modal-save" class="px-5 py-2 bg-indigo-600 text-white rounded-xl">Save</button></div></div>`; attachEvents(); };
+    const attachEvents = () => {
+      document.getElementById("modal-close-x")?.addEventListener("click", closeModal);
+      document.getElementById("modal-cancel")?.addEventListener("click", closeModal);
+      document.getElementById("modal-save")?.addEventListener("click", () => { local.content = document.getElementById("edit-content").value; updateEntry(local); });
+      document.getElementById("modal-add-link")?.addEventListener("click", () => { const inp = document.getElementById("modal-new-link"); const v = inp.value.trim(); if (v) { local.links.push(v); inp.value = ""; update(); } });
+      document.getElementById("modal-file-input")?.addEventListener("change", (e) => { const files = Array.from(e.target.files); files.forEach(f => { const r = new FileReader(); r.onload = ev => { local.files.push({ id: crypto.randomUUID?.() || Date.now() + Math.random(), name: f.name, type: f.type, dataURL: ev.target.result }); update(); }; r.readAsDataURL(f); }); e.target.value = ""; });
+      document.querySelectorAll("[data-tag]").forEach(btn => { btn.addEventListener("click", () => { const tag = btn.getAttribute("data-tag"); if (local.tags.includes(tag)) local.tags = local.tags.filter(t => t !== tag); else local.tags.push(tag); update(); }); });
+      document.querySelectorAll("[data-rm-link]").forEach(btn => { btn.addEventListener("click", () => { const idx = parseInt(btn.getAttribute("data-rm-link")); local.links.splice(idx, 1); update(); }); });
+      document.querySelectorAll("[data-rm-file]").forEach(btn => { btn.addEventListener("click", () => { const fid = btn.getAttribute("data-rm-file"); local.files = local.files.filter(f => f.id !== fid); update(); }); });
+    };
+    const wrapper = document.createElement("div"); wrapper.id = "modal-global"; wrapper.className = "fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4"; const inner = document.createElement("div"); inner.id = "modal-inner"; wrapper.appendChild(inner); document.body.appendChild(wrapper); update();
+  }
+
+  // ---------- RENDER HELPERS ----------
+  function escapeHtml(s) { if (!s) return ''; return s.replace(/[&<>]/g, m => m === '&' ? '&amp;' : m === '<' ? '&lt;' : '&gt;'); }
+  
+  function renderEntryCard(e, ro = false, orderNumber = null) {
+    const meta = getEntryMetadata(new Date(e.createdTimestamp));
+    const tagsHtml = (showTags && e.tags?.length) ? `<div class="flex flex-wrap gap-1.5 mt-2">${e.tags.map(t => { const c = getTagColor(t); return `<span class="tag-pill tag-pill-sm text-xs px-2 py-0.5 rounded-full" style="background:${c.bg}; color:${c.text};">#${escapeHtml(t)}</span>`; }).join('')}</div>` : '';
+    const dropdownId = `dropdown-${e.id}`;
+    const orderBadge = (orderNumber !== null) ? `<span class="order-badge">#${orderNumber}</span>` : '';
+    return `<div class="log-card" data-entry-id="${e.id}">
+      <div class="flex justify-between items-start mb-2">
+        <div class="flex items-center gap-1">${orderBadge}${e.pinned && !ro ? '<span class="text-xs bg-amber-50 text-amber-600 px-2 py-0.5 rounded-full"><i class="fas fa-thumbtack text-xs"></i> pinned</span>' : ''}</div>
+        ${ro ? '' : `<div class="actions-dropdown"><button class="dropdown-btn" data-dropdown="${dropdownId}"><i class="fas fa-ellipsis-h"></i></button><div id="${dropdownId}" class="dropdown-content"><div class="dropdown-item" data-action="edit" data-id="${e.id}"><i class="fas fa-pen"></i> Edit</div><div class="dropdown-item" data-action="duplicate" data-id="${e.id}"><i class="fas fa-copy"></i> Duplicate</div><div class="dropdown-item" data-action="pin" data-id="${e.id}" data-pinned="${e.pinned}"><i class="fas fa-thumbtack"></i> ${e.pinned ? 'Unpin' : 'Pin'}</div><div class="dropdown-item" data-action="move-up" data-id="${e.id}"><i class="fas fa-arrow-up"></i> Move Up</div><div class="dropdown-item" data-action="move-down" data-id="${e.id}"><i class="fas fa-arrow-down"></i> Move Down</div><div class="dropdown-item text-rose-600" data-action="delete" data-id="${e.id}"><i class="fas fa-trash-alt"></i> Delete</div></div></div>`}
+      </div>
+      <div class="text-gray-800 whitespace-pre-wrap text-[14px] leading-relaxed">${escapeHtml(e.content)}</div>
+      ${tagsHtml}
+      ${e.links?.length ? `<div class="flex flex-wrap gap-2 mt-2 text-xs">${e.links.map(l => `<a href="${escapeHtml(l)}" target="_blank" class="text-indigo-500 underline"><i class="fas fa-link"></i> ${l.length > 35 ? l.slice(0, 32) + '…' : l}</a>`).join('')}</div>` : ''}
+      ${e.files?.length ? `<div class="flex flex-wrap gap-2 mt-2">${e.files.map(f => `<a href="${f.dataURL}" download="${f.name}" class="text-xs bg-gray-100 px-2.5 py-1 rounded-full"><i class="fas fa-paperclip"></i> ${escapeHtml(f.name)}</a>`).join('')}</div>` : ''}
+      <div class="mt-3 pt-2 border-t border-gray-100 text-[10px] text-gray-400 flex gap-x-3"><span><i class="far fa-calendar-alt mr-1"></i>${meta.currentDate} · ${meta.currentTime}</span><span><i class="far fa-clock mr-1"></i>${meta.dayName}</span></div>
+    </div>`;
+  }
+
+  // ---------- CLEAN PDF EXPORT (professional layout) ----------
+  async function generateCleanReportHTML() {
+    let allEntries = await db.entries.toArray();
+    if (globalSearch) { const t = globalSearch.toLowerCase(); allEntries = allEntries.filter(e => e.content?.toLowerCase().includes(t) || e.tags?.some(tg => tg.toLowerCase().includes(t))); }
+    if (tagFilter) allEntries = allEntries.filter(e => e.tags?.includes(tagFilter));
+    
+    const total = allEntries.length;
+    const uniqueDays = new Set(allEntries.map(e => e.dayId)).size;
+    const avgPerDay = total / (uniqueDays || 1);
+    const tagCounts = new Map();
+    allEntries.forEach(e => { e.tags?.forEach(t => tagCounts.set(t, (tagCounts.get(t) || 0) + 1)); });
+    const topTags = Array.from(tagCounts.entries()).sort((a,b) => b[1]-a[1]).slice(0,5);
+    const weekdayCounts = [0,0,0,0,0,0,0];
+    allEntries.forEach(e => {
+      const date = new Date(e.dayId);
+      let wd = date.getDay();
+      wd = wd === 0 ? 6 : wd - 1;
+      weekdayCounts[wd]++;
+    });
+    const maxWeekday = Math.max(...weekdayCounts, 1);
+    const weekdays = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+    const chartBars = weekdayCounts.map(c => `<div class="chart-bar" style="height: ${(c / maxWeekday) * 100}px;"></div>`).join('');
+    const mostActiveDay = weekdays[weekdayCounts.indexOf(Math.max(...weekdayCounts))];
+    const tagCloudHtml = topTags.map(([t, c]) => `<span class="tag-pill" style="background:${getTagColor(t).bg}; color:${getTagColor(t).text};">#${t} (${c})</span>`).join('');
+    const monthMap = new Map();
+    allEntries.forEach(e => { const month = e.dayId.slice(0,7); monthMap.set(month, (monthMap.get(month) || 0) + 1); });
+    const monthTrend = Array.from(monthMap.entries()).sort().slice(-3);
+    const trendHtml = monthTrend.map(([m, c]) => `<div class="flex justify-between text-xs"><span>${m}</span><span class="font-medium">${c} entries</span></div>`).join('');
+    
+    const groups = new Map();
+    allEntries.forEach(e => { if (!groups.has(e.dayId)) groups.set(e.dayId, []); groups.get(e.dayId).push(e); });
+    const days = Array.from(groups.keys()).sort().reverse();
+    let entriesHtml = '';
+    for (const day of days) {
+      const dayEntries = groups.get(day).sort((a, b) => (a.order || 0) - (b.order || 0));
+      entriesHtml += `<div class="day-group mb-8">
+        <div class="flex items-center gap-2 mb-3 pb-2 border-b border-indigo-200">
+          <i class="fas fa-calendar-day text-indigo-400 text-sm"></i>
+          <h3 class="font-semibold text-gray-800">${new Date(day).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</h3>
+          <span class="text-xs text-gray-400">${dayEntries.length} entries</span>
+        </div>
+        <div class="entries-grid">${dayEntries.map((e, idx) => renderEntryCard(e, true, idx+1)).join('')}</div>
+      </div>`;
+    }
+    if (allEntries.length === 0) entriesHtml = '<div class="text-center text-gray-400 py-10">No entries match your filters.</div>';
+    
+    return `<!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <title>Flowlog Report</title>
+      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+      <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+      <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Inter', sans-serif; background: white; padding: 0.5in; color: #1e293b; line-height: 1.5; }
+        .report-header { border-bottom: 2px solid #2f80ed; margin-bottom: 32px; padding-bottom: 16px; }
+        .report-header h1 { font-size: 28px; font-weight: 700; margin-bottom: 4px; }
+        .report-header p { color: #6c7a91; font-size: 12px; }
+        .report-stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 32px; }
+        .stat-card { background: #f8fafc; border-radius: 20px; padding: 16px; border: 1px solid #e2e8f0; }
+        .stat-title { color: #6c7a91; font-size: 12px; margin-bottom: 6px; }
+        .stat-value { font-size: 28px; font-weight: 700; color: #0f172a; }
+        .stat-sub { font-size: 10px; color: #94a3b8; margin-top: 6px; }
+        .report-chart-card { background: #f8fafc; border-radius: 20px; padding: 18px; border: 1px solid #e2e8f0; margin-bottom: 20px; }
+        .weekday-chart { display: flex; justify-content: space-between; align-items: flex-end; height: 120px; gap: 8px; margin-top: 12px; }
+        .chart-bar { flex: 1; background: #3f8eff; border-radius: 8px 8px 4px 4px; }
+        .tag-cloud { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+        .tag-pill { display: inline-block; padding: 4px 12px; border-radius: 40px; font-size: 11px; font-weight: 500; }
+        .entries-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; margin-top: 8px; }
+        .log-card { background: white; border: 1px solid #e2e8f0; border-radius: 20px; padding: 18px; break-inside: avoid; page-break-inside: avoid; }
+        .order-badge { display: inline-flex; background: #eef2f6; border-radius: 40px; padding: 2px 10px; font-size: 10px; font-weight: 600; margin-right: 8px; color: #475569; }
+        .day-group { margin-bottom: 32px; }
+        .entry-metadata { font-size: 9px; color: #94a3b8; margin-top: 12px; padding-top: 8px; border-top: 1px solid #e2e8f0; display: flex; gap: 12px; }
+        @media print { body { padding: 0.5in; margin: 0; } .report-stats-grid, .report-chart-card, .day-group { break-inside: avoid; } }
+        @media (max-width: 700px) { .report-stats-grid { grid-template-columns: repeat(2, 1fr); } .entries-grid { grid-template-columns: 1fr; } }
+      </style>
+    </head>
+    <body>
+      <div class="report-header">
+        <h1>Flowlog Report</h1>
+        <p>Generated on ${new Date().toLocaleString()} ${globalSearch ? `· Search: "${globalSearch}"` : ''} ${tagFilter ? `· Tag: #${tagFilter}` : ''}</p>
+      </div>
+      <div class="report-stats-grid">
+        <div class="stat-card"><div class="stat-title">Total Entries</div><div class="stat-value">${total}</div><div class="stat-sub">across ${uniqueDays} days</div></div>
+        <div class="stat-card"><div class="stat-title">Avg. per Day</div><div class="stat-value">${avgPerDay.toFixed(1)}</div><div class="stat-sub">daily average</div></div>
+        <div class="stat-card"><div class="stat-title">Most Active Day</div><div class="stat-value">${mostActiveDay}</div><div class="stat-sub">${Math.max(...weekdayCounts)} entries</div></div>
+        <div class="stat-card"><div class="stat-title">Unique Tags</div><div class="stat-value">${tagCounts.size}</div><div class="stat-sub">used across all logs</div></div>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; margin-bottom: 32px;">
+        <div class="report-chart-card"><h4 style="font-weight: 600; margin-bottom: 8px;">Weekly Activity</h4><div class="weekday-chart">${chartBars}</div><div class="flex justify-between mt-2 text-xs text-gray-400">${weekdays.map(d=>`<span>${d}</span>`).join('')}</div></div>
+        <div class="report-chart-card"><h4 style="font-weight: 600; margin-bottom: 8px;">Top Tags</h4><div class="tag-cloud">${tagCloudHtml || '— no tags yet —'}</div></div>
+        <div class="report-chart-card"><h4 style="font-weight: 600; margin-bottom: 8px;">Recent Trend</h4><div class="space-y-1 mt-2">${trendHtml || 'not enough data'}</div></div>
+        <div class="report-chart-card"><h4 style="font-weight: 600; margin-bottom: 8px;">Your Flow</h4><p class="text-sm text-gray-600 mt-2">You’ve logged <strong>${total}</strong> moments across <strong>${uniqueDays}</strong> days. Keep the momentum! 🚀</p></div>
+      </div>
+      <h3 style="font-weight: 600; margin: 24px 0 16px 0;">📋 All Entries (grouped by day)</h3>
+      ${entriesHtml}
+      <div style="margin-top: 40px; text-align: center; font-size: 9px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 16px;">Flowlog — Professional Daily Log Report</div>
+    </body>
+    </html>`;
+  }
+
+  async function exportCleanPDF() {
+    const html = await generateCleanReportHTML();
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'absolute';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = 'none';
+    document.body.appendChild(iframe);
+    const doc = iframe.contentWindow.document;
+    doc.open();
+    doc.write(html);
+    doc.close();
+    iframe.contentWindow.print();
+    setTimeout(() => document.body.removeChild(iframe), 1500);
+  }
+
+  async function getWeekdayHeatmap() {
+    const all = await db.entries.toArray();
+    const counts = [0,0,0,0,0,0,0];
+    for (const entry of all) { const d = new Date(entry.dayId); let wd = d.getDay(); wd = wd === 0 ? 6 : wd - 1; counts[wd]++; }
+    const levels = counts.map(c => { if (c === 0) return 0; if (c <= 49) return 1; if (c <= 99) return 2; if (c <= 149) return 3; if (c <= 199) return 4; return 5; });
+    return { dayNames: ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"], counts, levels };
+  }
+
+  function showTagPicker(callback) {
+    const existing = document.getElementById("floating-tag-picker");
+    if (existing) existing.remove();
+    const picker = document.createElement("div");
+    picker.id = "floating-tag-picker";
+    picker.className = "tag-picker-modal";
+    picker.innerHTML = `<div class="flex flex-wrap gap-2">${ALL_TAGS.map(t => { const col = getTagColor(t); return `<button data-tag="${escapeHtml(t)}" class="tag-pill text-xs px-2.5 py-1 rounded-full" style="background:${col.bg}; color:${col.text};">#${escapeHtml(t)}</button>`; }).join('')}</div><div class="flex justify-end w-full mt-2"><button id="close-tag-picker" class="text-xs text-gray-400">Done</button></div>`;
+    document.body.appendChild(picker);
+    const handleTagClick = (e) => { const btn = e.target.closest("[data-tag]"); if (!btn) return; const tag = btn.getAttribute("data-tag"); if (callback) callback(tag); };
+    picker.addEventListener("click", handleTagClick);
+    document.getElementById("close-tag-picker")?.addEventListener("click", () => picker.remove());
+    setTimeout(() => { const closeOutside = (e) => { if (!picker.contains(e.target)) picker.remove(); document.removeEventListener("click", closeOutside); }; document.addEventListener("click", closeOutside); }, 100);
+  }
+
+  // ---------- MAIN RENDER ----------
+  async function render() {
+    const activeEl = document.activeElement; const wasSearch = activeEl?.id === 'search-global'; const cursorPos = wasSearch ? activeEl.selectionStart : null;
+    const allEntriesDb = await db.entries.toArray();
+    const usedTags = [...new Set(allEntriesDb.flatMap(e => e.tags || []))];
+    const heatmapData = await getWeekdayHeatmap();
+    const heatmapHtml = `<div class="heatmap-tiles">${heatmapData.dayNames.map((day, idx) => `<div class="heatmap-tile tile-level-${heatmapData.levels[idx]}" title="${day}: ${heatmapData.counts[idx]} entries"></div>`).join('')}</div><div class="heatmap-legend"><span>0</span><span>1-49</span><span>50-99</span><span>100-149</span><span>150-199</span><span>200+</span></div>`;
+
+    let content = '';
+    if (viewMode === 'journal') {
+      let filtered = [...entries];
+      if (globalSearch) { const t = globalSearch.toLowerCase(); filtered = filtered.filter(e => e.content?.toLowerCase().includes(t) || e.tags?.some(tg => tg.toLowerCase().includes(t))); }
+      if (tagFilter) filtered = filtered.filter(e => e.tags?.includes(tagFilter));
+      const entriesHtml = filtered.length === 0 ? '<div class="bg-white/70 rounded-2xl p-10 text-center text-gray-400 col-span-2"><i class="fas fa-feather-alt text-2xl mb-2 opacity-50"></i><p>no logs yet — write something above ✨</p></div>' : filtered.map((e, idx) => renderEntryCard(e, false, idx+1)).join('');
+      content = `<div class="create-entry-area mb-6"><div class="flex items-center justify-between mb-1"><div class="flex items-center gap-2"><i class="fas fa-plus-circle text-amber-500 text-lg"></i><span class="text-xs font-medium text-gray-500">New entry (Press Enter)</span></div><button id="toggle-tags-btn" class="text-gray-400 hover:text-gray-600 text-xs"><i class="fas ${showTags ? 'fa-eye-slash' : 'fa-eye'}"></i> ${showTags ? 'Hide tags' : 'Show tags'}</button></div><textarea id="new-entry-field" rows="2" placeholder="What did you do? Write naturally, then press Enter →" class="w-full border-0 focus:ring-0 text-gray-700 resize-none outline-none text-sm placeholder:text-gray-400 bg-transparent"></textarea><div class="flex flex-wrap gap-1.5 mt-2 mb-1">${QUICK_TAGS.map(t => { const c = getTagColor(t); return `<button data-quick-tag="${escapeHtml(t)}" class="quick-tag-btn tag-pill tag-pill-sm text-xs px-2 py-0.5 rounded-full" style="background:${c.bg}; color:${c.text};">#${escapeHtml(t)}</button>`; }).join('')}<button id="more-tags-btn" class="tag-pill tag-pill-sm text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">+ More</button></div><div class="flex justify-between items-center mt-1"><div class="text-[10px] text-gray-400"><i class="far fa-keyboard"></i> <kbd class="px-1.5 py-0.5 bg-gray-100 rounded-md font-mono">⏎ Enter</kbd></div><div id="selected-tags-indicator" class="text-[10px] text-indigo-500"></div></div></div><div class="entries-grid">${entriesHtml}</div>`;
+    } else {
+      const allEntries = await db.entries.toArray();
+      const total = allEntries.length;
+      const uniqueDays = new Set(allEntries.map(e => e.dayId)).size;
+      const avgPerDay = total / (uniqueDays || 1);
+      const tagCounts = new Map();
+      allEntries.forEach(e => { e.tags?.forEach(t => tagCounts.set(t, (tagCounts.get(t) || 0) + 1)); });
+      const topTags = Array.from(tagCounts.entries()).sort((a,b) => b[1]-a[1]).slice(0,5);
+      const weekdayCounts = [0,0,0,0,0,0,0];
+      allEntries.forEach(e => { const d = new Date(e.dayId); let wd = d.getDay(); wd = wd === 0 ? 6 : wd - 1; weekdayCounts[wd]++; });
+      const maxWeekday = Math.max(...weekdayCounts, 1);
+      const weekdays = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+      const chartBars = weekdayCounts.map(c => `<div class="chart-bar" style="height: ${(c / maxWeekday) * 100}px;"></div>`).join('');
+      const mostActiveDay = weekdays[weekdayCounts.indexOf(Math.max(...weekdayCounts))];
+      const tagCloudHtml = topTags.map(([t, c]) => `<span class="tag-pill text-xs" style="background:${getTagColor(t).bg}; color:${getTagColor(t).text};">#${t} (${c})</span>`).join('');
+      const monthMap = new Map();
+      allEntries.forEach(e => { const month = e.dayId.slice(0,7); monthMap.set(month, (monthMap.get(month) || 0) + 1); });
+      const monthTrend = Array.from(monthMap.entries()).sort().slice(-3);
+      const trendHtml = monthTrend.map(([m, c]) => `<div class="flex justify-between text-xs"><span>${m}</span><span class="font-medium">${c} entries</span></div>`).join('');
+      const statsHtml = `<div class="report-stats-grid"><div class="stat-card"><div class="stat-title">Total Entries</div><div class="stat-value">${total}</div><div class="text-gray-400 text-[10px] mt-1">across ${uniqueDays} days</div></div><div class="stat-card"><div class="stat-title">Avg. per Day</div><div class="stat-value">${avgPerDay.toFixed(1)}</div><div class="text-gray-400 text-[10px] mt-1">daily average</div></div><div class="stat-card"><div class="stat-title">Most Active Day</div><div class="stat-value">${mostActiveDay}</div><div class="text-gray-400 text-[10px] mt-1">${Math.max(...weekdayCounts)} entries</div></div><div class="stat-card"><div class="stat-title">Unique Tags</div><div class="stat-value">${tagCounts.size}</div><div class="text-gray-400 text-[10px] mt-1">used across all logs</div></div></div><div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8"><div class="report-chart-card"><h4 class="font-semibold text-gray-800 text-sm mb-2">Weekly Activity</h4><div class="weekday-chart">${chartBars}</div><div class="flex justify-between mt-2 text-[10px] text-gray-400">${weekdays.map(d=>`<span>${d}</span>`).join('')}</div></div><div class="report-chart-card"><h4 class="font-semibold text-gray-800 text-sm mb-2">Top Tags</h4><div class="tag-cloud">${tagCloudHtml || '— no tags yet —'}</div></div><div class="report-chart-card"><h4 class="font-semibold text-gray-800 text-sm mb-2">Recent Trend</h4><div class="space-y-1 mt-2">${trendHtml || 'not enough data'}</div></div><div class="report-chart-card"><h4 class="font-semibold text-gray-800 text-sm mb-2">Your Flow</h4><p class="text-xs text-gray-500 mt-2">You’ve logged <strong>${total}</strong> moments across <strong>${uniqueDays}</strong> days. Keep the momentum! 🚀</p></div></div><div class="mb-4 flex justify-end"><button id="export-pdf-btn" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-xl flex items-center gap-2 text-sm shadow-sm"><i class="fas fa-file-pdf"></i> Export Clean PDF Report</button></div><h3 class="font-semibold text-gray-800 text-md mb-3">📋 All Entries (grouped by day)</h3>`;
+      let filteredEntries = allEntries;
+      if (globalSearch) { const t = globalSearch.toLowerCase(); filteredEntries = filteredEntries.filter(e => e.content?.toLowerCase().includes(t) || e.tags?.some(tg => tg.toLowerCase().includes(t))); }
+      if (tagFilter) filteredEntries = filteredEntries.filter(e => e.tags?.includes(tagFilter));
+      const groups = new Map();
+      filteredEntries.forEach(e => { if (!groups.has(e.dayId)) groups.set(e.dayId, []); groups.get(e.dayId).push(e); });
+      const days = Array.from(groups.keys()).sort().reverse();
+      let groupedHtml = '';
+      for (const day of days) {
+        const dayEntries = groups.get(day).sort((a,b) => (a.order||0)-(b.order||0));
+        groupedHtml += `<div class="mb-6"><div class="flex items-center gap-2 mb-2 pb-2 border-b border-indigo-200"><i class="fas fa-calendar-day text-indigo-400 text-sm"></i><h3 class="font-semibold text-gray-800">${new Date(day).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</h3><span class="text-xs text-gray-400">${dayEntries.length} entries</span></div><div class="entries-grid">${dayEntries.map((e, idx) => renderEntryCard(e, true, idx+1)).join('')}</div></div>`;
+      }
+      if (filteredEntries.length === 0) groupedHtml = '<div class="text-center text-gray-400 py-10">No entries match your filters.</div>';
+      content = statsHtml + groupedHtml;
+    }
+
+    const tabs = `<div class="flex gap-1 mb-6 border-b border-gray-200 pb-1"><button data-mode="journal" class="tab-btn ${viewMode === 'journal' ? 'active' : 'text-gray-500'} text-sm"><i class="fas fa-book-open mr-1"></i> Journal</button><button data-mode="reports" class="tab-btn ${viewMode === 'reports' ? 'active' : 'text-gray-500'} text-sm"><i class="fas fa-chart-line mr-1"></i> Reports</button></div>`;
+    const filterBar = `<div class="filter-bar mb-6"><div class="search-wrapper"><i class="fas fa-search"></i><input type="text" id="search-global" placeholder="Search logs or tags..." value="${escapeHtml(globalSearch)}"/></div><select id="tag-filter"><option value="">All tags</option>${usedTags.map(t => `<option value="${escapeHtml(t)}" ${tagFilter === t ? 'selected' : ''}>#${escapeHtml(t)}</option>`).join('')}</select>${(globalSearch || tagFilter) ? '<button id="clear-filters" class="text-xs text-gray-400 bg-white/60 px-3 rounded-full ml-1">✕</button>' : ''}</div>`;
+    const greeting = (() => { const h = new Date().getHours(); if (h < 12) return "Good Morning"; if (h < 18) return "Good Afternoon"; return "Good Evening"; })();
+    const dash = `<div class="mb-8"><div class="flex items-center justify-between flex-wrap gap-3 mb-5"><div><p class="text-xs text-gray-500 mb-0.5">${greeting} 👋</p><h1 class="text-3xl font-bold gradient-headline">Flowlog Dashboard</h1><p class="text-xs text-gray-500 mt-0.5">Journal, reports & activity</p></div>${viewMode === 'journal' ? `<div class="flex items-center gap-2 bg-white/60 rounded-full p-1 shadow-sm"><button id="prev-day" class="date-nav flex items-center justify-center"><i class="fas fa-chevron-left text-gray-500 text-xs"></i></button><span class="text-xs font-medium text-gray-700 px-2 min-w-[160px] text-center">${formatDateHeader(currentDay)}</span><button id="next-day" class="date-nav flex items-center justify-center"><i class="fas fa-chevron-right text-gray-500 text-xs"></i></button><input type="date" id="date-picker" value="${currentDay}" class="border-0 bg-transparent text-xs font-medium text-gray-700 cursor-pointer w-28" /></div>` : ''}</div><div class="dashboard-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px;"><div class="stat-card"><div class="stat-title">Total Entries</div><div class="stat-value">${allEntriesDb.length}</div><div class="text-emerald-500 text-[10px] mt-0.5">+12% this week</div></div><div class="stat-card"><div class="stat-title">Today's Logs</div><div class="stat-value">${entries.length}</div><div class="text-gray-400 text-[10px] mt-0.5">Active</div></div><div class="stat-card"><div class="stat-title">Tags Used</div><div class="stat-value">${usedTags.length}</div><div class="text-gray-400 text-[10px] mt-0.5">Organized</div></div><div class="stat-card"><div class="stat-title">Activity Heatmap</div>${heatmapHtml}</div></div></div>`;
+    app.innerHTML = dash + tabs + filterBar + content;
+
+    if (wasSearch) { const inp = document.getElementById("search-global"); if (inp) { inp.focus(); if (cursorPos !== null) inp.setSelectionRange(cursorPos, cursorPos); } }
+    attachDelegatedEvents();
+
+    document.querySelectorAll(".tab-btn").forEach(btn => { btn.onclick = () => { viewMode = btn.getAttribute("data-mode"); render(); }; });
+    const toggleBtn = document.getElementById("toggle-tags-btn");
+    if (toggleBtn) toggleBtn.onclick = () => { showTags = !showTags; localStorage.setItem("flowlog_showTags", showTags); render(); };
+    
+    if (viewMode === 'journal') {
+      let selectedTags = [];
+      const indicator = document.getElementById("selected-tags-indicator");
+      const updateIndicator = () => { if (indicator) indicator.innerText = selectedTags.length ? `tags: ${selectedTags.map(t => '#'+t).join(', ')}` : ''; };
+      document.querySelectorAll(".quick-tag-btn").forEach(btn => {
+        btn.onclick = () => { const tag = btn.getAttribute("data-quick-tag"); if (selectedTags.includes(tag)) selectedTags = selectedTags.filter(t => t !== tag); else selectedTags.push(tag); updateIndicator(); };
+      });
+      document.getElementById("more-tags-btn")?.addEventListener("click", () => { showTagPicker((tag) => { if (selectedTags.includes(tag)) selectedTags = selectedTags.filter(t => t !== tag); else selectedTags.push(tag); updateIndicator(); document.getElementById("floating-tag-picker")?.remove(); }); });
+      const ta = document.getElementById("new-entry-field");
+      if (ta) {
+        ta.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); addEntry(ta.value, selectedTags); selectedTags = []; updateIndicator(); } });
+        if (!wasSearch) ta.focus();
+      }
+    } else {
+      const exportBtn = document.getElementById("export-pdf-btn");
+      if (exportBtn) exportBtn.onclick = () => exportCleanPDF();
+    }
+
+    const prev = document.getElementById("prev-day"), nxt = document.getElementById("next-day"), pick = document.getElementById("date-picker");
+    if (prev) prev.onclick = () => { const d = new Date(currentDay); d.setDate(d.getDate() - 1); currentDay = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; loadEntries(); };
+    if (nxt) nxt.onclick = () => { const d = new Date(currentDay); d.setDate(d.getDate() + 1); currentDay = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; loadEntries(); };
+    if (pick) pick.onchange = e => { currentDay = e.target.value; loadEntries(); };
+    const sbox = document.getElementById("search-global"); if (sbox) sbox.oninput = e => { globalSearch = e.target.value; if (searchDebounce) clearTimeout(searchDebounce); searchDebounce = setTimeout(() => render(), 200); };
+    const tsel = document.getElementById("tag-filter"); if (tsel) tsel.onchange = e => { tagFilter = e.target.value; render(); };
+    const clearBtn = document.getElementById("clear-filters"); if (clearBtn) clearBtn.onclick = () => { globalSearch = ""; tagFilter = ""; render(); };
+  }
+
+  function attachDelegatedEvents() {
+    if (window._delegated) return;
+    window._delegated = true;
+    document.addEventListener("click", async (e) => {
+      const dropdownBtn = e.target.closest("[data-dropdown]");
+      if (dropdownBtn) {
+        e.stopPropagation();
+        const dropdownId = dropdownBtn.getAttribute("data-dropdown");
+        const dropdown = document.getElementById(dropdownId);
+        if (dropdown) { document.querySelectorAll(".dropdown-content").forEach(d => { if (d !== dropdown) d.classList.remove("show"); }); dropdown.classList.toggle("show"); }
+        return;
+      }
+      const actionItem = e.target.closest(".dropdown-item");
+      if (actionItem) {
+        e.preventDefault();
+        const id = parseInt(actionItem.getAttribute("data-id"));
+        const action = actionItem.getAttribute("data-action");
+        if (action === "edit") { const entry = await db.entries.get(id); if (entry) openEditModal(entry); }
+        else if (action === "duplicate") { const entry = await db.entries.get(id); if (entry) duplicateEntry(entry); }
+        else if (action === "pin") { const pinned = actionItem.getAttribute("data-pinned") === 'true'; await togglePin(id, pinned); }
+        else if (action === "delete") await deleteEntry(id);
+        else if (action === "move-up") await moveEntry(id, 'up');
+        else if (action === "move-down") await moveEntry(id, 'down');
+        actionItem.closest(".dropdown-content")?.classList.remove("show");
+        return;
+      }
+      if (!e.target.closest(".actions-dropdown")) document.querySelectorAll(".dropdown-content").forEach(d => d.classList.remove("show"));
+    });
+  }
+
+  loadEntries();
+</script>
+</body>
+</html>
